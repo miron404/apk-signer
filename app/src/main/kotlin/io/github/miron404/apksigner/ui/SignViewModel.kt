@@ -128,12 +128,6 @@ class SignViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(message = "Saved v4 signature") }
     }
 
-    fun verifyOnly(source: Uri) = run("Verifying") {
-        loadApkIntoWorkspace(source)
-        val report = withContext(Dispatchers.Default) { ApkSigningService.verify(inputFile, null) }
-        _state.update { it.copy(report = report, signedReady = false, idsigReady = false) }
-    }
-
     override fun onCleared() {
         discardOutputs()
         inputFile.delete()

@@ -2,6 +2,7 @@ package io.github.miron404.apksigner.ui
 
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.miron404.apksigner.container
@@ -42,8 +43,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(VaultUiState())
     val state: StateFlow<VaultUiState> = _state.asStateFlow()
 
-    /** Wall-clock time of the last successful app unlock, mirroring the hardware auth window. */
-    private var unlockedAt = 0L
+    /**
+     * Monotonic timestamp of the moment the app was last backgrounded, or null if it has not been
+     * in the foreground yet. Wall-clock time would let a clock change extend the window.
+     */
+    private var backgroundedAt: Long? = null
 
     init {
         refresh()
@@ -63,17 +67,25 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- app lock -----------------------------------------------------------------------------
 
-    /** Re-locks the UI when the authorisation window this app promises has elapsed. */
-    fun onResumed() {
+    fun onBackgrounded() {
+        backgroundedAt = SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * Re-locks the UI when the app has been away for longer than the authentication window it
+     * advertises. A cold start always locks. Under a per-operation policy the window is zero, so
+     * any trip to the background re-locks — which is the point of that setting.
+     */
+    fun onForegrounded() {
+        refresh()
         if (!settings.lockOnLaunch) {
             _state.update { it.copy(unlocked = true) }
             return
         }
-        val window = vault.state().policy.timeoutSeconds
-        val stillFresh = window > 0 &&
-            System.currentTimeMillis() - unlockedAt < window * 1000L
+        val since = backgroundedAt
+        val window = vault.state().policy.timeoutSeconds * 1000L
+        val stillFresh = since != null && SystemClock.elapsedRealtime() - since <= window
         _state.update { it.copy(unlocked = stillFresh) }
-        refresh()
     }
 
     fun unlockApp() = run("Unlocking") {
@@ -84,7 +96,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             subtitle = "Protects the list of signing identities",
             allowDeviceCredential = policy.allowDeviceCredential,
         )
-        unlockedAt = System.currentTimeMillis()
         _state.update { it.copy(unlocked = true) }
     }
 
@@ -211,7 +222,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             withContext(Dispatchers.IO) { vault.ensureMasterKey() }
         }
-        unlockedAt = System.currentTimeMillis()
         refresh()
         _state.update { it.copy(message = "Authentication now required " + describe(policy)) }
     }
@@ -249,7 +259,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun readFromUri(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
         getApplication<Application>().contentResolver.openInputStream(uri)
             ?.use { stream ->
-                val bytes = stream.readBytes()
+                // Read one byte past the limit rather than slurping the whole stream and checking
+                // afterwards, so an oversized file cannot exhaust memory first.
+                val bytes = stream.readNBytes(BackupArchive.MAX_ARCHIVE_BYTES + 1)
                 if (bytes.size > BackupArchive.MAX_ARCHIVE_BYTES) error("File is too large")
                 bytes
             }

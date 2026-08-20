@@ -76,9 +76,6 @@ enum class KeyAlgorithm(val label: String, val jcaName: String, val signatureAlg
 
     companion object {
         val DEFAULT = RSA_4096
-
-        fun fromMeta(algorithm: String, keySize: Int): KeyAlgorithm? =
-            entries.firstOrNull { it.jcaName == algorithm && it.keySize == keySize }
     }
 }
 

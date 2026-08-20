@@ -5,8 +5,11 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -33,16 +36,23 @@ class MainActivity : ComponentActivity() {
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) vaultModel.onResumed()
+                        when (event) {
+                            Lifecycle.Event.ON_START -> vaultModel.onForegrounded()
+                            Lifecycle.Event.ON_STOP -> vaultModel.onBackgrounded()
+                            else -> Unit
+                        }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
                     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                 }
 
-                if (state.lockOnLaunch && !state.unlocked) {
-                    LockScreen(state = state, onUnlock = vaultModel::unlockApp)
-                } else {
+                // The lock is an opaque overlay rather than a replacement, so a trip through the
+                // system file picker does not tear down the screen the user was working on.
+                Box(Modifier.fillMaxSize()) {
                     AppNavHost(vaultModel = vaultModel)
+                    if (state.lockOnLaunch && !state.unlocked) {
+                        LockScreen(state = state, onUnlock = vaultModel::unlockApp)
+                    }
                 }
             }
         }

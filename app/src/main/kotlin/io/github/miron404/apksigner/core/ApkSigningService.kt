@@ -2,6 +2,7 @@ package io.github.miron404.apksigner.core
 
 import com.android.apksig.ApkSigner
 import com.android.apksig.ApkVerifier
+import com.android.apksig.KeyConfig
 import com.android.apksig.apk.ApkUtils
 import com.android.apksig.util.DataSources
 import java.io.File
@@ -90,7 +91,7 @@ object ApkSigningService {
 
         val signerConfig = ApkSigner.SignerConfig.Builder(
             identity.meta.alias,
-            material.privateKey,
+            KeyConfig.Jca(material.privateKey),
             material.chain,
         ).build()
 
