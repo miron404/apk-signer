@@ -94,12 +94,21 @@ problem, and it is the reason StrongBox is preferred over the TEE.
 | Backup key derivation | Argon2id, 64 MiB, 4 passes, 2 lanes, 128-bit salt |
 | Backup encryption | AES-256-GCM, header authenticated as associated data |
 | PKCS#12 export | PBES2 / AES-256-CBC, PBKDF2-HMAC-SHA256, 600,000 iterations, SHA-256 MAC |
+| PKCS#12 inside the vault | same, at 10,000 iterations — see below |
 | Signing keys | RSA 2048/3072/4096 or ECDSA P-256/P-384 |
 | Certificate signature | SHA-256 or SHA-512 with RSA; SHA-256/384 with ECDSA |
 
+The keystore held inside the vault uses a much lower PBKDF2 cost than an export does. Its password
+is 256 bits of CSPRNG output, so there is no guessing attack for a KDF to slow down, and the file is
+already sealed in the hardware-backed envelope; charging 600,000 rounds there would add seconds to
+every create, sign and export while buying nothing. Exports, whose passphrase a human chooses, keep
+the full cost.
+
 Randomness comes from a single `SecureRandom` seeded by the kernel. The full BouncyCastle provider
 replaces Android's stripped-down `BC` at startup, because the platform build omits the PKCS#12
-writer and certificate builder this app needs.
+writer and certificate builder this app needs. It is used only for those parts: key generation and
+signature operations go to the platform provider, which on Android is BoringSSL through Conscrypt
+and is orders of magnitude faster than BouncyCastle's Java implementation on ART.
 
 ## Reporting
 

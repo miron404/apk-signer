@@ -8,9 +8,11 @@ Titan M2 secure element, and signs APKs on the device with Google's `apksig` (v1
 ## What it does
 
 - **Multiple signing identities.** Each one is an RSA or ECDSA key pair with a self-signed
-  certificate. Certificate metadata (CN, OU, O, L, ST, C) is entered by hand; every field left
-  blank is certified as `Unknown`, and a blank validity means 30 years — the same defaults
-  `keytool` uses.
+  certificate, generated with the platform's native provider so it takes a moment rather than
+  minutes. Certificate metadata (CN, OU, O, L, ST, C) is entered by hand; every field left blank is
+  certified as `Unknown`, and a blank validity means 30 years — the same defaults `keytool` uses.
+  RSA 2048 is the default, matching Google's signing guidance; RSA 4096 is offered but its key
+  generation is inherently slower.
 - **Random keystore passwords, sealed in hardware.** Each keystore gets a 256-bit password from the
   system CSPRNG. It is never shown and never stored in the clear: it lives inside an AES-256-GCM
   envelope whose key is a StrongBox (Titan M2) key that cannot leave the secure element.
@@ -79,7 +81,14 @@ The project builds with Gradle and the Android Gradle Plugin; CI runs on GitHub 
 The end-to-end signing test uses the debug APK as its fixture, so run `assembleDebug` first; it is
 skipped otherwise.
 
-To get a signed release build out of CI, add these repository secrets:
+### Release signing
+
+Without secrets configured, the release APK is signed with the CI runner's debug key so it is still
+installable; the artifact is named `...-debugsigned.apk` to make that obvious, and the key is cached
+so consecutive builds can update each other. Prefer the release build over the debug one — the
+debug APK ships an unshrunk BouncyCastle and is noticeably slower on first use.
+
+To sign with a key you control, add these repository secrets:
 
 | Secret | Meaning |
 | --- | --- |

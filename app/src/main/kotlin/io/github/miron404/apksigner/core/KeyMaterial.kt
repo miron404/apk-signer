@@ -176,6 +176,36 @@ object KeyMaterial {
         return LoadedKeyMaterial(privateKey, chain)
     }
 
+    /**
+     * Loads and JITs the BouncyCastle PKCS#12 machinery by doing a throwaway round trip.
+     *
+     * First use of that code costs several seconds of class loading and verification, which is
+     * otherwise paid while the user waits for their first key. Call it early and off the critical
+     * path; it is idempotent and safe to skip.
+     */
+    fun warmUp() {
+        val material = generate(
+            NewIdentityRequest(
+                label = "warmup",
+                alias = "warmup",
+                dn = DistinguishedName(),
+                validityYears = 1,
+                algorithm = KeyAlgorithm.EC_P256,
+            )
+        )
+        val password = randomKeystorePassword()
+        val encoded = writePkcs12(
+            "warmup",
+            material.keyPair.private,
+            material.certificate,
+            password,
+            iterations = 1,
+        )
+        readPkcs12(encoded, password, "warmup")
+        password.wipe()
+        encoded.wipe()
+    }
+
     /** A 256-bit random keystore password, encoded so it survives being handled as text. */
     fun randomKeystorePassword(): CharArray =
         Base64.getEncoder().withoutPadding().encodeToString(randomBytes(32)).toCharArray()

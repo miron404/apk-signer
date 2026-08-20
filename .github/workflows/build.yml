@@ -30,6 +30,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Keeps the fallback signing key stable so an APK from one run can update the previous one.
+      - name: Cache the debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
       - name: Configure release signing
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
@@ -38,9 +45,11 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           if [ -z "$SIGNING_KEYSTORE_B64" ]; then
-            echo "No signing secrets configured; the release APK will be unsigned."
+            echo "No signing secrets configured; the release APK falls back to the debug key."
+            echo "RELEASE_SIGNED=false" >> "$GITHUB_ENV"
             exit 0
           fi
+          echo "RELEASE_SIGNED=true" >> "$GITHUB_ENV"
           printf '%s' "$SIGNING_KEYSTORE_B64" | base64 -d > release.jks
           {
             echo "storeFile=release.jks"
@@ -61,6 +70,12 @@ jobs:
 
       - name: Assemble release
         run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Label a fallback-signed release
+        if: env.RELEASE_SIGNED == 'false' 
+        run: |
+          cd app/build/outputs/apk/release
+          for f in *.apk; do mv "$f" "${f%.apk}-debugsigned.apk"; done
 
       - name: Remove signing material
         if: always()

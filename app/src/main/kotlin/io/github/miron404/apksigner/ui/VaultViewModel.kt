@@ -51,6 +51,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
      */
     private var backgroundedAt: Long? = null
 
+    private var warmedUp = false
+
     init {
         refresh()
     }
@@ -114,6 +116,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- identities ---------------------------------------------------------------------------
+
+    /**
+     * Pays BouncyCastle's one-off class-loading cost while the user is still filling in the form,
+     * instead of adding it to the wait after they press Generate.
+     */
+    fun prepareForKeyGeneration() {
+        if (warmedUp) return
+        warmedUp = true
+        viewModelScope.launch(Dispatchers.Default) { runCatching { KeyMaterial.warmUp() } }
+    }
 
     fun createIdentity(request: NewIdentityRequest, onCreated: () -> Unit) =
         run("Generating ${request.algorithm.label} key") {
