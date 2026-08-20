@@ -78,7 +78,7 @@ class KeyGenerationTimingTest {
         }
 
         Log.i(TAG, "PKCS#12 write: internal ${internal}ms, export-strength ${export}ms")
-        assertTrue("internal keystore write took ${internal}ms", internal < 5_000)
+        assertTrue("internal keystore write took ${internal}ms", internal < 2_000)
     }
 
     @Test
@@ -92,10 +92,20 @@ class KeyGenerationTimingTest {
     companion object {
         private const val TAG = "ApkSignerTiming"
 
+        /**
+         * Measures what a user waits for, not the one-off class loading that precedes it.
+         *
+         * First contact with BouncyCastle's PKCS#12 code costs seconds of loading and verification
+         * on ART. The app absorbs that with [KeyMaterial.warmUp] when the create screen opens, so
+         * these tests do the same; leaving it in would make every bound a measurement of the
+         * runner's disk instead of the crypto.
+         */
         @BeforeClass
         @JvmStatic
-        fun installProvider() {
+        fun installProviderAndWarmUp() {
             Bc.install()
+            val cold = measureTimeMillis { KeyMaterial.warmUp() }
+            Log.i(TAG, "BouncyCastle PKCS#12 warm-up: ${cold}ms")
         }
     }
 }
