@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -80,6 +82,32 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        // Pinned rather than placed in the scrolling content: Scaffold stacks the snackbar above
+        // the bottom bar, so transient feedback can never sit on top of the primary action.
+        bottomBar = {
+            if (state.signedReady) {
+                Surface(tonalElevation = 3.dp) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { saveApk.launch(state.suggestedName) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Save signed APK") }
+                        if (state.idsigReady) {
+                            OutlinedButton(
+                                onClick = { saveIdsig.launch(state.suggestedName + ".idsig") },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Save .idsig (v4)") }
+                        }
+                    }
+                }
+            }
+        },
     ) { padding ->
         Column(
             Modifier
@@ -202,7 +230,9 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
             ) { Text("Sign") }
 
             state.report?.let { report ->
-                SectionCard(if (report.verified) "Verified" else "Verification failed") {
+                SectionCard(
+                    if (report.verified) "Signed and verified" else "Verification failed"
+                ) {
                     KeyValueRow(
                         "Schemes",
                         listOfNotNull(
@@ -226,19 +256,6 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
                         )
                     }
                 }
-            }
-
-            if (state.signedReady) {
-                Button(
-                    onClick = { saveApk.launch(state.suggestedName) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Save signed APK") }
-            }
-            if (state.idsigReady) {
-                OutlinedButton(
-                    onClick = { saveIdsig.launch(state.suggestedName + ".idsig") },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Save .idsig (v4)") }
             }
         }
     }

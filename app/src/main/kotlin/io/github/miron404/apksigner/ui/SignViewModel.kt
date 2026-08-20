@@ -54,23 +54,61 @@ class SignViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeMessage() = _state.update { it.copy(message = null, error = null) }
 
-    fun selectIdentity(id: String?) = _state.update { it.copy(selectedIdentityId = id) }
+    fun selectIdentity(id: String?) {
+        _state.update { it.copy(selectedIdentityId = id) }
+        invalidateResult()
+    }
 
     fun setSchemes(schemes: SignatureSchemes) {
         container.settings.defaultSchemes = schemes
         _state.update { it.copy(schemes = schemes) }
+        invalidateResult()
     }
 
-    fun setRealign(value: Boolean) = _state.update { it.copy(realign = value) }
+    fun setRealign(value: Boolean) {
+        _state.update { it.copy(realign = value) }
+        invalidateResult()
+    }
+
+    /** A signed output belongs to the settings that produced it; changing them discards it. */
+    private fun invalidateResult() {
+        if (_state.value.report == null) return
+        discardOutputs()
+        _state.update { it.copy(report = null, signedReady = false, idsigReady = false) }
+    }
 
     fun loadApk(source: Uri) = run("Reading APK") {
         discardOutputs()
-        loadApkIntoWorkspace(source)
-        if (_state.value.apkInfo == null) {
+        val name = displayName(source) ?: "input.apk"
+        copyIntoWorkspace(source)
+        val info = withContext(Dispatchers.IO) {
+            runCatching { ApkSigningService.inspect(inputFile) }.getOrNull()
+        }
+        if (info == null) {
+            // Leave no trace of a rejected file: the button goes back to inviting a choice rather
+            // than naming something the app refused.
             inputFile.delete()
+            _state.update {
+                it.copy(
+                    sourceName = null,
+                    apkInfo = null,
+                    report = null,
+                    signedReady = false,
+                    idsigReady = false,
+                )
+            }
             error("That file is not a valid APK")
         }
-        _state.update { it.copy(report = null, signedReady = false, idsigReady = false) }
+        _state.update {
+            it.copy(
+                sourceName = name,
+                apkInfo = info,
+                report = null,
+                signedReady = false,
+                idsigReady = false,
+                suggestedName = name.removeSuffix(".apk") + "-signed.apk",
+            )
+        }
     }
 
     fun sign(identity: IdentityMeta) = run("Signing") {
@@ -98,11 +136,9 @@ class SignViewModel(application: Application) : AndroidViewModel(application) {
                 report = report,
                 signedReady = report.verified,
                 idsigReady = idsigFile.isFile,
-                message = if (report.verified) {
-                    "Signed and verified"
-                } else {
-                    "Signed, but verification failed"
-                },
+                // Success speaks for itself through the report card, which is on screen and says
+                // more than a snackbar could. A failure still interrupts.
+                error = if (report.verified) null else "Signed, but the result did not verify",
             )
         }
         if (!report.verified) outputFile.delete()
@@ -134,19 +170,10 @@ class SignViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
-    private suspend fun loadApkIntoWorkspace(source: Uri) {
-        withContext(Dispatchers.IO) {
-            getApplication<Application>().contentResolver.openInputStream(source)?.use { stream ->
-                inputFile.outputStream().use { stream.copyTo(it) }
-            } ?: error("Could not read the selected file")
-        }
-        val name = displayName(source) ?: "input.apk"
-        val info = withContext(Dispatchers.IO) {
-            runCatching { ApkSigningService.inspect(inputFile) }.getOrNull()
-        }
-        _state.update {
-            it.copy(sourceName = name, apkInfo = info, suggestedName = name.removeSuffix(".apk") + "-signed.apk")
-        }
+    private suspend fun copyIntoWorkspace(source: Uri) = withContext(Dispatchers.IO) {
+        getApplication<Application>().contentResolver.openInputStream(source)?.use { stream ->
+            inputFile.outputStream().use { stream.copyTo(it) }
+        } ?: error("Could not read the selected file")
     }
 
     private fun discardOutputs() {
