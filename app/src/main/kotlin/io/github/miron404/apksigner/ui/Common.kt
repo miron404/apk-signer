@@ -159,6 +159,65 @@ fun PassphraseDialog(
     )
 }
 
+/**
+ * Edits the two names an identity carries: what this app calls it, and the alias inside the
+ * keystore. Only the alias costs anything to change, which the dialog says out loud.
+ */
+@Composable
+fun RenameDialog(
+    currentLabel: String,
+    currentAlias: String,
+    onConfirm: (label: String, alias: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var label by remember { mutableStateOf(currentLabel) }
+    var alias by remember { mutableStateOf(currentAlias) }
+    val aliasChanged = alias.trim() != currentAlias
+    val valid = label.isNotBlank() && alias.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename identity") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Name in this app") },
+                    singleLine = true,
+                    isError = label.isBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = alias,
+                    onValueChange = { alias = it },
+                    label = { Text("Keystore alias") },
+                    singleLine = true,
+                    isError = alias.isBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    if (aliasChanged) {
+                        "Changing the alias rewrites the keystore, so you will be asked to " +
+                            "authenticate. The key and its certificate are unchanged, so APKs " +
+                            "already signed with this identity stay valid."
+                    } else {
+                        "The alias is what appears inside the keystore and in v1 signature files."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onConfirm(label.trim(), alias.trim()) }) {
+                Text("Rename")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 @Composable
 fun KeyValueRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

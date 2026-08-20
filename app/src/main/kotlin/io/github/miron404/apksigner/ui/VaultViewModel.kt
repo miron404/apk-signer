@@ -163,6 +163,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+    /**
+     * Renaming only the display label is free; changing the keystore alias rewrites the sealed
+     * keystore and will ask for authentication.
+     */
+    fun renameIdentity(meta: IdentityMeta, label: String, alias: String) = run("Renaming") {
+        val updated = vault.rename(meta, label, alias)
+        refresh()
+        _state.update { it.copy(message = "Renamed to ${updated.label}") }
+    }
+
     fun deleteIdentity(meta: IdentityMeta) = run("Deleting") {
         vault.delete(meta.id)
         refresh()

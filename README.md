@@ -9,7 +9,8 @@ Titan M2 secure element, and signs APKs on the device with Google's `apksig` (v1
 
 - **Multiple signing identities.** Each one is an RSA or ECDSA key pair with a self-signed
   certificate, generated with the platform's native provider so it takes a moment rather than
-  minutes. Certificate metadata (CN, OU, O, L, ST, C) is entered by hand; every field left blank is
+  minutes. Both names an identity carries — the one shown in the app and the keystore alias — can
+  be changed later. Certificate metadata (CN, OU, O, L, ST, C) is entered by hand; every field left blank is
   certified as `Unknown`, and a blank validity means 30 years — the same defaults `keytool` uses.
   RSA 2048 is the default, matching Google's signing guidance; RSA 4096 is offered but its key
   generation is inherently slower.

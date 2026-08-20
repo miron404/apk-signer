@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -42,6 +43,7 @@ fun IdentityDetailScreen(model: VaultViewModel, identityId: String, onBack: () -
 
     val identity = state.identities.firstOrNull { it.id == identityId }
     var confirmDelete by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     var exportTarget by remember { mutableStateOf<Uri?>(null) }
 
     val createDocument = rememberLauncherForActivityResult(
@@ -68,6 +70,18 @@ fun IdentityDetailScreen(model: VaultViewModel, identityId: String, onBack: () -
         )
     }
 
+    if (renaming) {
+        RenameDialog(
+            currentLabel = identity.label,
+            currentAlias = identity.alias,
+            onConfirm = { label, alias ->
+                renaming = false
+                model.renameIdentity(identity, label, alias)
+            },
+            onDismiss = { renaming = false },
+        )
+    }
+
     if (confirmDelete) {
         ConfirmDialog(
             title = "Delete ${identity.label}?",
@@ -90,6 +104,11 @@ fun IdentityDetailScreen(model: VaultViewModel, identityId: String, onBack: () -
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { renaming = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Rename")
                     }
                 },
             )

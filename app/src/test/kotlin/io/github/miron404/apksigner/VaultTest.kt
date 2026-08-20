@@ -265,6 +265,61 @@ class VaultTest {
     }
 
     @Test
+    fun `renaming the label leaves the sealed keystore untouched`() = runTest {
+        vault.ensureMasterKey()
+        val meta = vault.create(request("before"))
+        val sealed = File(root, meta.id + ".key").readBytes()
+
+        val renamed = vault.rename(meta, label = "after", alias = "")
+
+        assertEquals("after", renamed.label)
+        assertEquals(meta.alias, renamed.alias)
+        assertEquals("after", vault.list().single().label)
+        assertArrayEquals(sealed, File(root, meta.id + ".key").readBytes())
+    }
+
+    @Test
+    fun `renaming the alias rewrites the keystore but keeps the key`() = runTest {
+        vault.ensureMasterKey()
+        val meta = vault.create(request("one"))
+        val originalFingerprint = meta.fingerprintSha256
+
+        val renamed = vault.rename(meta, label = "renamed", alias = "newalias")
+
+        assertEquals("renamed", renamed.label)
+        assertEquals("newalias", renamed.alias)
+        assertEquals(originalFingerprint, renamed.fingerprintSha256)
+
+        vault.open(renamed).use { portable ->
+            val loaded = KeyMaterial.readPkcs12(portable.pkcs12, portable.keystorePassword, "newalias")
+            assertEquals(originalFingerprint, KeyMaterial.fingerprintSha256(loaded.chain.first()))
+        }
+    }
+
+    @Test
+    fun `renaming keeps values the user left blank`() = runTest {
+        vault.ensureMasterKey()
+        val meta = vault.create(request("keep"))
+
+        val renamed = vault.rename(meta, label = "  ", alias = "  ")
+
+        assertEquals(meta.label, renamed.label)
+        assertEquals(meta.alias, renamed.alias)
+    }
+
+    @Test
+    fun `renaming to the same names is a no-op`() = runTest {
+        vault.ensureMasterKey()
+        val meta = vault.create(request("same"))
+        val sealed = File(root, meta.id + ".key").readBytes()
+
+        val renamed = vault.rename(meta, label = meta.label, alias = meta.alias)
+
+        assertEquals(meta, renamed)
+        assertArrayEquals(sealed, File(root, meta.id + ".key").readBytes())
+    }
+
+    @Test
     fun `restore skips identities that are already present`() = runTest {
         vault.ensureMasterKey()
         val meta = vault.create(request("one"))

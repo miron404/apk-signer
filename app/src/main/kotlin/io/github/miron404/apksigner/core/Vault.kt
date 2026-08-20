@@ -154,6 +154,53 @@ class Vault(
         return true
     }
 
+    /**
+     * Renames an identity.
+     *
+     * Changing only the display label rewrites cleartext metadata and costs nothing. Changing the
+     * keystore alias has to rewrite the keystore itself, which means unsealing it and therefore
+     * authenticating; the key and its certificate are carried over untouched, so the identity a
+     * signature proves does not change. Blank input keeps the current value.
+     */
+    suspend fun rename(meta: IdentityMeta, label: String, alias: String): IdentityMeta {
+        val newLabel = label.trim().ifEmpty { meta.label }
+        val newAlias = alias.trim().ifEmpty { meta.alias }
+        if (newLabel == meta.label && newAlias == meta.alias) return meta
+
+        if (newAlias == meta.alias) {
+            val updated = meta.copy(label = newLabel)
+            withContext(Dispatchers.IO) { writeMeta(updated) }
+            return updated
+        }
+
+        return open(meta).use { portable ->
+            val material = KeyMaterial.readPkcs12(
+                portable.pkcs12,
+                portable.keystorePassword,
+                meta.alias,
+            )
+            val updated = meta.copy(label = newLabel, alias = newAlias)
+            val pkcs12 = withContext(Dispatchers.Default) {
+                KeyMaterial.writePkcs12(
+                    alias = newAlias,
+                    privateKey = material.privateKey,
+                    certificate = material.chain.first(),
+                    password = portable.keystorePassword,
+                )
+            }
+            try {
+                store(updated, portable.keystorePassword, pkcs12)
+            } finally {
+                pkcs12.wipe()
+            }
+            updated
+        }
+    }
+
+    private fun writeMeta(meta: IdentityMeta) {
+        File(root, meta.id + META_SUFFIX).writeText(json.encodeToString(meta))
+    }
+
     private suspend fun store(meta: IdentityMeta, password: CharArray, pkcs12: ByteArray) {
         val wrapper = requireWrapper()
         val payload = json.encodeToString(
@@ -166,7 +213,7 @@ class Vault(
             val sealed = Envelope.seal(wrapper, meta.id.toByteArray(Charsets.UTF_8), payload)
             withContext(Dispatchers.IO) {
                 File(root, meta.id + KEY_SUFFIX).writeBytesAtomically(sealed)
-                File(root, meta.id + META_SUFFIX).writeText(json.encodeToString(meta))
+                writeMeta(meta)
             }
         } finally {
             payload.wipe()
