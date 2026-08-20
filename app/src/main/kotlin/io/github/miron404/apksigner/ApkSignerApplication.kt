@@ -7,13 +7,14 @@ import io.github.miron404.apksigner.core.Bc
 import io.github.miron404.apksigner.core.MasterKey
 import io.github.miron404.apksigner.core.SystemAuthenticator
 import io.github.miron404.apksigner.core.Vault
+import java.io.File
 
 /** Hand-rolled service locator; the graph is small enough that a DI framework would be noise. */
 class AppContainer(context: Context) {
     val settings = AppSettings(context)
     val authenticator = SystemAuthenticator()
     val masterKey = MasterKey(authenticator)
-    val vault = Vault(context, masterKey, settings)
+    val vault = Vault(File(context.filesDir, "vault"), masterKey, settings)
 }
 
 class ApkSignerApplication : Application() {

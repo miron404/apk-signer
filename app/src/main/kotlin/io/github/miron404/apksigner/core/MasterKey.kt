@@ -50,9 +50,9 @@ data class MasterKeyState(
  * key under a fresh alias and re-sealing the vault against it. [Vault] owns that transition; this
  * class only creates, describes and destroys aliases.
  */
-class MasterKey(private val authenticator: SystemAuthenticator) {
+class MasterKey(private val authenticator: SystemAuthenticator) : MasterKeyStore {
 
-    fun state(alias: String): MasterKeyState {
+    override fun state(alias: String): MasterKeyState {
         val key = loadKey(alias) ?: return MasterKeyState(false, false, AuthPolicy.DEFAULT)
         val info = keyInfo(key)
         return MasterKeyState(
@@ -66,10 +66,10 @@ class MasterKey(private val authenticator: SystemAuthenticator) {
         )
     }
 
-    fun exists(alias: String): Boolean = androidKeyStore().containsAlias(alias)
+    override fun exists(alias: String): Boolean = androidKeyStore().containsAlias(alias)
 
     /** Creates the key under [alias]. Returns whether the secure element accepted it. */
-    fun create(alias: String, policy: AuthPolicy): Boolean {
+    override fun create(alias: String, policy: AuthPolicy): Boolean {
         val authType = if (policy.allowDeviceCredential) {
             KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
         } else {
@@ -107,15 +107,15 @@ class MasterKey(private val authenticator: SystemAuthenticator) {
         }
     }
 
-    fun wrapper(alias: String, policy: AuthPolicy): KeyWrapper = HardwareWrapper(alias, policy)
+    override fun wrapper(alias: String, policy: AuthPolicy): KeyWrapper = HardwareWrapper(alias, policy)
 
-    fun delete(alias: String) {
+    override fun delete(alias: String) {
         val store = androidKeyStore()
         if (store.containsAlias(alias)) store.deleteEntry(alias)
     }
 
     /** Removes master-key aliases this app owns other than the ones still referenced. */
-    fun deleteOrphans(keep: Set<String>) {
+    override fun deleteOrphans(keep: Set<String>) {
         val store = androidKeyStore()
         store.aliases().toList()
             .filter { it.startsWith(ALIAS_PREFIX) && it !in keep }
@@ -205,13 +205,13 @@ class MasterKey(private val authenticator: SystemAuthenticator) {
             )
     }
 
+    override fun newAlias(): String = ALIAS_PREFIX + randomBytes(8).toHex().lowercase()
+
     companion object {
         const val ALIAS_PREFIX = "io.github.miron404.apksigner.master."
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val MAX_AUTH_ATTEMPTS = 2
-
-        fun newAlias(): String = ALIAS_PREFIX + randomBytes(8).toHex().lowercase()
 
         private fun androidKeyStore(): KeyStore =
             KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }

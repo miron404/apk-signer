@@ -1,6 +1,5 @@
 package io.github.miron404.apksigner.core
 
-import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -32,6 +31,29 @@ class PortableIdentity(
 class VaultLockedException(message: String) : Exception(message)
 
 /**
+ * The subset of [MasterKey] the vault depends on.
+ *
+ * Split out so the staging-and-commit logic below can be exercised on a plain JVM, where
+ * AndroidKeyStore does not exist.
+ */
+interface MasterKeyStore {
+    fun state(alias: String): MasterKeyState
+    fun exists(alias: String): Boolean
+    fun create(alias: String, policy: AuthPolicy): Boolean
+    fun wrapper(alias: String, policy: AuthPolicy): KeyWrapper
+    fun delete(alias: String)
+    fun deleteOrphans(keep: Set<String>)
+    fun newAlias(): String
+}
+
+/** The subset of [AppSettings] the vault depends on. */
+interface VaultSettings {
+    var masterKeyAlias: String?
+    var pendingMasterKeyAlias: String?
+    var desiredPolicy: AuthPolicy
+}
+
+/**
  * Stores signing identities on disk.
  *
  * Metadata is cleartext so the list screen works without authentication; it only repeats what is
@@ -39,12 +61,12 @@ class VaultLockedException(message: String) : Exception(message)
  * an [Envelope] sealed by the hardware master key, so reading them always costs an authentication.
  */
 class Vault(
-    context: Context,
-    private val masterKey: MasterKey,
-    private val settings: AppSettings,
+    root: File,
+    private val masterKey: MasterKeyStore,
+    private val settings: VaultSettings,
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
-    private val root = File(context.filesDir, "vault").apply { mkdirs() }
+    private val root = root.apply { mkdirs() }
 
     /** Resumes an interrupted rekey and clears stray state. Safe to call repeatedly. */
     fun repair() {
@@ -79,7 +101,7 @@ class Vault(
         settings.masterKeyAlias?.let { alias ->
             if (masterKey.exists(alias)) return masterKey.state(alias).strongBoxBacked
         }
-        val alias = MasterKey.newAlias()
+        val alias = masterKey.newAlias()
         val strongBox = masterKey.create(alias, settings.desiredPolicy)
         settings.masterKeyAlias = alias
         masterKey.deleteOrphans(setOf(alias))
@@ -91,10 +113,6 @@ class Vault(
             .orEmpty()
             .mapNotNull { file -> runCatching { json.decodeFromString<IdentityMeta>(file.readText()) }.getOrNull() }
             .sortedBy { it.label.lowercase() }
-
-    fun find(id: String): IdentityMeta? =
-        File(root, id + META_SUFFIX).takeIf { it.isFile }
-            ?.let { runCatching { json.decodeFromString<IdentityMeta>(it.readText()) }.getOrNull() }
 
     suspend fun create(request: NewIdentityRequest): IdentityMeta = withContext(Dispatchers.Default) {
         val material = KeyMaterial.generate(request)
@@ -191,9 +209,9 @@ class Vault(
     suspend fun rekey(policy: AuthPolicy) {
         val previousAlias = settings.masterKeyAlias
         val oldWrapper = previousAlias?.let { masterKey.wrapper(it, masterKey.state(it).policy) }
-        val newAlias = MasterKey.newAlias()
+        val newAlias = masterKey.newAlias()
         masterKey.create(newAlias, policy)
-        settings.desiredPolicy = policy
+        val newWrapper = masterKey.wrapper(newAlias, policy)
 
         try {
             for (meta in list()) {
@@ -206,7 +224,7 @@ class Vault(
                     Envelope.open(oldWrapper, context, withContext(Dispatchers.IO) { keyFile.readBytes() })
                 }
                 try {
-                    val resealed = Envelope.seal(masterKey.wrapper(newAlias, policy), context, plaintext)
+                    val resealed = Envelope.seal(newWrapper, context, plaintext)
                     withContext(Dispatchers.IO) {
                         File(root, meta.id + KEY_SUFFIX + STAGED_SUFFIX).writeBytesAtomically(resealed)
                     }
@@ -222,6 +240,7 @@ class Vault(
 
         // Commit point: from here on, repair() can always finish the swap.
         settings.pendingMasterKeyAlias = newAlias
+        settings.desiredPolicy = policy
         repair()
     }
 
