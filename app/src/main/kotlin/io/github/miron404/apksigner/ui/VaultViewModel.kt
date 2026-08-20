@@ -1,0 +1,258 @@
+package io.github.miron404.apksigner.ui
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import io.github.miron404.apksigner.container
+import io.github.miron404.apksigner.core.AuthCancelledException
+import io.github.miron404.apksigner.core.AuthPolicy
+import io.github.miron404.apksigner.core.BackupArchive
+import io.github.miron404.apksigner.core.IdentityMeta
+import io.github.miron404.apksigner.core.KeyMaterial
+import io.github.miron404.apksigner.core.MasterKeyState
+import io.github.miron404.apksigner.core.NewIdentityRequest
+import io.github.miron404.apksigner.core.PortableIdentity
+import io.github.miron404.apksigner.core.SystemAuthenticator
+import io.github.miron404.apksigner.core.wipe
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+data class VaultUiState(
+    val identities: List<IdentityMeta> = emptyList(),
+    val masterKey: MasterKeyState = MasterKeyState(false, false, AuthPolicy.DEFAULT),
+    val lockOnLaunch: Boolean = true,
+    val unlocked: Boolean = false,
+    val busy: String? = null,
+    val message: String? = null,
+    val error: String? = null,
+)
+
+class VaultViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val container = application.container
+    private val vault = container.vault
+    private val settings = container.settings
+
+    private val _state = MutableStateFlow(VaultUiState())
+    val state: StateFlow<VaultUiState> = _state.asStateFlow()
+
+    /** Wall-clock time of the last successful app unlock, mirroring the hardware auth window. */
+    private var unlockedAt = 0L
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        _state.update {
+            it.copy(
+                identities = vault.list(),
+                masterKey = vault.state(),
+                lockOnLaunch = settings.lockOnLaunch,
+            )
+        }
+    }
+
+    fun consumeMessage() = _state.update { it.copy(message = null, error = null) }
+
+    // --- app lock -----------------------------------------------------------------------------
+
+    /** Re-locks the UI when the authorisation window this app promises has elapsed. */
+    fun onResumed() {
+        if (!settings.lockOnLaunch) {
+            _state.update { it.copy(unlocked = true) }
+            return
+        }
+        val window = vault.state().policy.timeoutSeconds
+        val stillFresh = window > 0 &&
+            System.currentTimeMillis() - unlockedAt < window * 1000L
+        _state.update { it.copy(unlocked = stillFresh) }
+        refresh()
+    }
+
+    fun unlockApp() = run("Unlocking") {
+        val policy = vault.state().policy
+        container.authenticator.authenticate(
+            crypto = null,
+            title = "Unlock APK Signer",
+            subtitle = "Protects the list of signing identities",
+            allowDeviceCredential = policy.allowDeviceCredential,
+        )
+        unlockedAt = System.currentTimeMillis()
+        _state.update { it.copy(unlocked = true) }
+    }
+
+    fun setLockOnLaunch(enabled: Boolean) {
+        settings.lockOnLaunch = enabled
+        _state.update { it.copy(lockOnLaunch = enabled, unlocked = it.unlocked || !enabled) }
+    }
+
+    // --- identities ---------------------------------------------------------------------------
+
+    fun createIdentity(request: NewIdentityRequest, onCreated: () -> Unit) =
+        run("Generating ${request.algorithm.label} key") {
+            if (!SystemAuthenticator.canAuthenticate(
+                    getApplication(),
+                    settings.desiredPolicy.allowDeviceCredential,
+                )
+            ) {
+                error("Set up a screen lock or biometric before creating keys")
+            }
+            val strongBox = withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+            val meta = vault.create(request)
+            refresh()
+            onCreated()
+            _state.update {
+                it.copy(
+                    message = if (strongBox) {
+                        "Created ${meta.label}; protected by the secure element"
+                    } else {
+                        "Created ${meta.label}; no secure element, key is TEE-backed"
+                    }
+                )
+            }
+        }
+
+    fun deleteIdentity(meta: IdentityMeta) = run("Deleting") {
+        vault.delete(meta.id)
+        refresh()
+        _state.update { it.copy(message = "Deleted ${meta.label}") }
+    }
+
+    /** Writes a PKCS#12 protected by a passphrase the user chooses, for use with other tooling. */
+    fun exportKeystore(meta: IdentityMeta, target: Uri, passphrase: CharArray) =
+        run("Exporting keystore") {
+            try {
+                vault.open(meta).use { portable ->
+                    val material = KeyMaterial.readPkcs12(
+                        portable.pkcs12,
+                        portable.keystorePassword,
+                        portable.meta.alias,
+                    )
+                    val encoded = withContext(Dispatchers.Default) {
+                        KeyMaterial.writePkcs12(
+                            alias = meta.alias,
+                            privateKey = material.privateKey,
+                            certificate = material.chain.first(),
+                            password = passphrase,
+                        )
+                    }
+                    writeToUri(target, encoded)
+                    encoded.wipe()
+                }
+                _state.update { it.copy(message = "Exported ${meta.alias}.p12") }
+            } finally {
+                passphrase.wipe()
+            }
+        }
+
+    // --- backup -------------------------------------------------------------------------------
+
+    fun exportBackup(target: Uri, passphrase: CharArray) = run("Encrypting backup") {
+        val metas = vault.list()
+        if (metas.isEmpty()) error("There is nothing to back up")
+        val portables = mutableListOf<PortableIdentity>()
+        try {
+            metas.forEach { portables += vault.open(it) }
+            val archive = withContext(Dispatchers.Default) {
+                BackupArchive.create(portables, passphrase)
+            }
+            writeToUri(target, archive)
+            _state.update { it.copy(message = "Backed up ${portables.size} identities") }
+        } finally {
+            portables.forEach { it.close() }
+            passphrase.wipe()
+        }
+    }
+
+    fun importBackup(source: Uri, passphrase: CharArray, overwrite: Boolean) =
+        run("Decrypting backup") {
+            val bytes = readFromUri(source)
+            val portables = withContext(Dispatchers.Default) {
+                BackupArchive.open(bytes, passphrase)
+            }
+            try {
+                withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+                var added = 0
+                var skipped = 0
+                portables.forEach { portable ->
+                    if (vault.restore(portable, overwrite)) added++ else skipped++
+                }
+                refresh()
+                _state.update {
+                    it.copy(
+                        message = "Imported $added identities" +
+                            if (skipped > 0) ", skipped $skipped already present" else ""
+                    )
+                }
+            } finally {
+                portables.forEach { it.close() }
+                bytes.wipe()
+                passphrase.wipe()
+            }
+        }
+
+    // --- policy -------------------------------------------------------------------------------
+
+    /**
+     * Applies a new authentication policy. The window is baked into the hardware key, so this mints
+     * a replacement and re-seals the vault against it.
+     */
+    fun applyPolicy(policy: AuthPolicy) = run("Re-keying vault") {
+        settings.desiredPolicy = policy
+        if (vault.state().exists) {
+            vault.rekey(policy)
+        } else {
+            withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+        }
+        unlockedAt = System.currentTimeMillis()
+        refresh()
+        _state.update { it.copy(message = "Authentication now required " + describe(policy)) }
+    }
+
+    private fun describe(policy: AuthPolicy): String {
+        val window = if (policy.perOperation) {
+            "for every operation"
+        } else {
+            "once per ${io.github.miron404.apksigner.core.formatDuration(policy.timeoutSeconds)}"
+        }
+        return window + if (policy.allowDeviceCredential) " (biometric or PIN)" else " (biometric only)"
+    }
+
+    // --- plumbing -----------------------------------------------------------------------------
+
+    private fun run(busy: String, block: suspend () -> Unit) = viewModelScope.launch {
+        _state.update { it.copy(busy = busy, error = null, message = null) }
+        try {
+            block()
+        } catch (_: AuthCancelledException) {
+            _state.update { it.copy(error = "Authentication cancelled") }
+        } catch (throwable: Throwable) {
+            _state.update { it.copy(error = throwable.message ?: throwable.javaClass.simpleName) }
+        } finally {
+            _state.update { it.copy(busy = null) }
+        }
+    }
+
+    private suspend fun writeToUri(uri: Uri, bytes: ByteArray) = withContext(Dispatchers.IO) {
+        getApplication<Application>().contentResolver.openOutputStream(uri, "wt")
+            ?.use { it.write(bytes) }
+            ?: error("Could not open the destination for writing")
+    }
+
+    private suspend fun readFromUri(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
+        getApplication<Application>().contentResolver.openInputStream(uri)
+            ?.use { stream ->
+                val bytes = stream.readBytes()
+                if (bytes.size > BackupArchive.MAX_ARCHIVE_BYTES) error("File is too large")
+                bytes
+            }
+            ?: error("Could not open the file")
+    }
+}
