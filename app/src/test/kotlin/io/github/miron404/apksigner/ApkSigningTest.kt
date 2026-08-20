@@ -38,7 +38,8 @@ class ApkSigningTest {
         val report = ApkSigningService.verify(output, null)
 
         assertTrue(report.errors.joinToString(" | "), report.verified)
-        assertTrue(report.v2)
+        // apksig only verifies the newest scheme that applies to the checked platform range, so at
+        // the fixture's API 33 floor v3 is the one that gets exercised.
         assertTrue(report.v3)
         assertEquals(1, report.signers.size)
     }
@@ -48,14 +49,13 @@ class ApkSigningTest {
         val output = signFixture(SignatureSchemes(v1 = true, v2 = true, v3 = true, v4 = false))
             ?: return
 
-        // The fixture targets API 33, where the verifier ignores v1 entirely. Check from API 24 so
-        // the JAR signature is actually exercised.
-        val report = ApkSigningService.verify(output, null, minSdkOverride = 24)
+        val modern = ApkSigningService.verify(output, null)
+        assertTrue("at API 33: " + modern.errors.joinToString(" | "), modern.verified)
 
-        assertTrue(report.errors.joinToString(" | "), report.verified)
-        assertTrue("v1 signature was not verified", report.v1)
-        assertTrue(report.v2)
-        assertTrue(report.v3)
+        // Only a platform range that reaches below API 24 exercises the JAR signature.
+        val legacy = ApkSigningService.verify(output, null, minSdkOverride = 21)
+        assertTrue("at API 21: " + legacy.errors.joinToString(" | "), legacy.verified)
+        assertTrue("v1 signature was not verified", legacy.v1)
     }
 
     @Test
