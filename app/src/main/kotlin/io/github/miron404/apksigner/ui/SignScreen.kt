@@ -96,13 +96,20 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
 
             SectionCard("Input") {
                 OutlinedButton(
-                    onClick = {
-                        pickApk.launch(
-                            arrayOf("application/vnd.android.package-archive", "application/zip", "*/*")
-                        )
-                    },
+                    // Ask for everything rather than for APK media types. Whether a document
+                    // provider reports an .apk as application/vnd.android.package-archive or falls
+                    // back to application/octet-stream depends on which provider serves the
+                    // listing, so a media-type filter hides real APKs in some folders. The file is
+                    // parsed after selection anyway, which is a stricter check than its extension.
+                    onClick = { pickApk.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(state.sourceName ?: "Choose an APK") }
+
+                Text(
+                    "You can also open an APK with this app, or share one to it, from a file manager.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 state.apkInfo?.let { info ->
                     KeyValueRow("Package", info.packageName ?: "unknown")

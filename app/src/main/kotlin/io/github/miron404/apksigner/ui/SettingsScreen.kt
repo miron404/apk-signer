@@ -200,7 +200,9 @@ fun SettingsScreen(model: VaultViewModel, onBack: () -> Unit) {
                     enabled = state.identities.isNotEmpty(),
                 ) { Text("Export encrypted backup") }
                 OutlinedButton(
-                    onClick = { openBackup.launch(arrayOf("application/octet-stream", "*/*")) },
+                    // Same reasoning as the APK picker: a backup has no registered media type, so
+                    // filtering on one hides it wherever the provider guesses differently.
+                    onClick = { openBackup.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Import backup") }
             }
