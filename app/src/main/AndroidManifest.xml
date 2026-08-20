@@ -34,6 +34,26 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+                Accept an APK opened with, or shared to, this app. Both filters are narrowed to the
+                APK media type so the app does not volunteer itself for unrelated files, and the
+                handler ignores anything that is not a content:// URI. Nothing here weakens the
+                vault: an incoming APK is only parsed and copied, and signing it still costs an
+                authentication.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="content"
+                    android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
         </activity>
     </application>
 

@@ -31,6 +31,8 @@ data class VaultUiState(
     val unlocked: Boolean = false,
     /** Set when the lock screen should raise the system prompt without waiting for a tap. */
     val promptPending: Boolean = false,
+    /** An APK handed to the app from outside, waiting to be picked up by the signing screen. */
+    val incomingApk: Uri? = null,
     val busy: String? = null,
     val message: String? = null,
     val error: String? = null,
@@ -68,6 +70,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun consumeMessage() = _state.update { it.copy(message = null, error = null) }
+
+    /**
+     * Records an APK that another app opened or shared with us. The read permission granted with
+     * the intent lasts only as long as this task, so the signing screen copies it out promptly.
+     */
+    fun onApkReceived(uri: Uri) = _state.update { it.copy(incomingApk = uri) }
+
+    fun consumeIncomingApk() = _state.update { it.copy(incomingApk = null) }
 
     // --- app lock -----------------------------------------------------------------------------
 

@@ -1,10 +1,14 @@
 package io.github.miron404.apksigner
 
+import android.content.ContentResolver
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
@@ -14,7 +18,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.miron404.apksigner.ui.ApkSignerTheme
 import io.github.miron404.apksigner.ui.AppNavHost
 import io.github.miron404.apksigner.ui.LockScreen
@@ -22,15 +25,18 @@ import io.github.miron404.apksigner.ui.VaultViewModel
 
 class MainActivity : ComponentActivity() {
 
+    private val vaultModel: VaultViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Keep certificate details and file names out of screenshots and the recents thumbnail.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
 
+        acceptIncomingApk(intent)
+
         setContent {
             ApkSignerTheme {
-                val vaultModel: VaultViewModel = viewModel()
                 val state by vaultModel.state.collectAsStateWithLifecycle()
 
                 val lifecycleOwner = LocalLifecycleOwner.current
@@ -58,6 +64,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** The activity is `singleTask`, so a second APK arrives here rather than through onCreate. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptIncomingApk(intent)
+    }
+
     override fun onStart() {
         super.onStart()
         // Registered here rather than in onResume: the lock is decided on ON_START and may raise a
@@ -68,5 +81,20 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         container.authenticator.detach(this)
         super.onStop()
+    }
+
+    private fun acceptIncomingApk(intent: Intent?) {
+        incomingApkUri(intent)?.let(vaultModel::onApkReceived)
+    }
+
+    private fun incomingApkUri(intent: Intent?): Uri? {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            else -> null
+        } ?: return null
+        // Only a content:// URI carries a permission grant from the sender. Anything else is
+        // either unreadable to us anyway or an attempt to point this app at its own storage.
+        return uri.takeIf { it.scheme == ContentResolver.SCHEME_CONTENT }
     }
 }

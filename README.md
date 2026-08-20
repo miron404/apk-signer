@@ -21,7 +21,8 @@ Titan M2 secure element, and signs APKs on the device with Google's `apksig` (v1
   app lock: the identity list re-locks once the app has been in the background for longer than the
   window.
 - **Signing and verification.** v1 (JAR), v2, v3 and v4 signature schemes, optional re-alignment,
-  and every result is verified with `ApkVerifier` before you are offered the file to save.
+  and every result is verified with `ApkVerifier` before you are offered the file to save. An APK
+  can be picked from inside the app, opened with it from a file manager, or shared to it.
 - **Encrypted backup.** A single passphrase-protected archive (Argon2id + AES-256-GCM) moves every
   identity to another device. Individual identities can also be exported as PKCS#12 for use with
   `apksigner` or Gradle.
@@ -83,12 +84,16 @@ skipped otherwise.
 
 ### Release signing
 
-Without secrets configured, the release APK is signed with the CI runner's debug key so it is still
-installable; the artifact is named `...-debugsigned.apk` to make that obvious, and the key is cached
-so consecutive builds can update each other. Prefer the release build over the debug one — the
-debug APK ships an unshrunk BouncyCastle and is noticeably slower on first use.
+Without secrets configured, CI mints a throwaway RSA key per run and signs the release with it, so
+the artifact is a real release build you can install and then re-sign with this app. It is named
+`...-cikey.apk`, and its SHA-256 fingerprint is printed in the build log. Because the key differs
+every run, a new build replaces rather than updates an existing install — export an encrypted
+backup first if the vault has anything in it.
 
-To sign with a key you control, add these repository secrets:
+Prefer the release build over the debug one: the debug APK ships an unshrunk BouncyCastle and is
+noticeably slower the first time it touches PKCS#12.
+
+To sign with a key you control instead, add these repository secrets:
 
 | Secret | Meaning |
 | --- | --- |

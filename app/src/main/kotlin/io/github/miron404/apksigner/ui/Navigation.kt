@@ -15,10 +15,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,6 +37,17 @@ object Routes {
 @Composable
 fun AppNavHost(vaultModel: VaultViewModel) {
     val navController = rememberNavController()
+    val state by vaultModel.state.collectAsStateWithLifecycle()
+
+    // An APK opened with or shared to the app lands on the signing screen, which picks it up.
+    LaunchedEffect(state.incomingApk) {
+        if (state.incomingApk != null &&
+            navController.currentBackStackEntry?.destination?.route != Routes.SIGN
+        ) {
+            navController.navigate(Routes.SIGN)
+        }
+    }
+
     NavHost(navController = navController, startDestination = Routes.IDENTITIES) {
         composable(Routes.IDENTITIES) {
             IdentitiesScreen(

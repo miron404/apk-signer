@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,6 +57,13 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
     val saveIdsig = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? -> uri?.let(signModel::saveIdsig) }
+
+    LaunchedEffect(vault.incomingApk) {
+        vault.incomingApk?.let { uri ->
+            signModel.loadApk(uri)
+            vaultModel.consumeIncomingApk()
+        }
+    }
 
     val selected = vault.identities.firstOrNull { it.id == state.selectedIdentityId }
     val busy = state.busy != null

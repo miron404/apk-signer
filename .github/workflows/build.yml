@@ -30,13 +30,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Keeps the fallback signing key stable so an APK from one run can update the previous one.
-      - name: Cache the debug keystore
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: debug-keystore-v1
-
       - name: Configure release signing
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
@@ -45,12 +38,25 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           if [ -z "$SIGNING_KEYSTORE_B64" ]; then
-            echo "No signing secrets configured; the release APK falls back to the debug key."
+            # No secrets: mint a throwaway key so the release APK is a real release build that can
+            # be installed and then re-signed by the app itself. It differs every run, so an
+            # existing install has to be replaced rather than updated.
+            echo "No signing secrets configured; generating a throwaway release key."
             echo "RELEASE_SIGNED=false" >> "$GITHUB_ENV"
-            exit 0
+            SIGNING_KEYSTORE_PASSWORD="$(head -c 24 /dev/urandom | base64)"
+            SIGNING_KEY_ALIAS=ci
+            SIGNING_KEY_PASSWORD="$SIGNING_KEYSTORE_PASSWORD"
+            keytool -genkeypair \
+              -keystore release.jks -storetype PKCS12 \
+              -alias "$SIGNING_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$SIGNING_KEYSTORE_PASSWORD" -keypass "$SIGNING_KEY_PASSWORD" \
+              -dname "CN=APK Signer throwaway CI key, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
+            keytool -list -v -keystore release.jks -storepass "$SIGNING_KEYSTORE_PASSWORD" \
+              | grep -i 'SHA256:' || true
+          else
+            echo "RELEASE_SIGNED=true" >> "$GITHUB_ENV"
+            printf '%s' "$SIGNING_KEYSTORE_B64" | base64 -d > release.jks
           fi
-          echo "RELEASE_SIGNED=true" >> "$GITHUB_ENV"
-          printf '%s' "$SIGNING_KEYSTORE_B64" | base64 -d > release.jks
           {
             echo "storeFile=release.jks"
             echo "storePassword=$SIGNING_KEYSTORE_PASSWORD"
@@ -71,11 +77,11 @@ jobs:
       - name: Assemble release
         run: ./gradlew --no-daemon :app:assembleRelease
 
-      - name: Label a fallback-signed release
-        if: env.RELEASE_SIGNED == 'false' 
+      - name: Label a throwaway-signed release
+        if: env.RELEASE_SIGNED == 'false'
         run: |
           cd app/build/outputs/apk/release
-          for f in *.apk; do mv "$f" "${f%.apk}-debugsigned.apk"; done
+          for f in *.apk; do mv "$f" "${f%.apk}-cikey.apk"; done
 
       - name: Remove signing material
         if: always()

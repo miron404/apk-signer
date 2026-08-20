@@ -34,6 +34,14 @@ would only cause `UserNotAuthenticatedException`. This is the reason the window 
 sealed blob cannot be moved from one identity's slot to another's, and a stale blob cannot be
 replayed under a different entry.
 
+**Hostile input from other apps.** The launcher activity also accepts an APK through `ACTION_VIEW`
+and `ACTION_SEND`. Both filters are narrowed to the APK media type, and the handler ignores any URI
+that is not `content://`, so the app cannot be pointed at its own storage and only ever acts on a
+grant the sender made deliberately. An incoming APK is parsed and copied, nothing more; producing a
+signature from it still requires the user to choose an identity and authenticate. What this does
+not prevent is a person being talked into signing something they did not inspect — see the note on
+malicious payloads below.
+
 **Exfiltration by the app itself.** There is no `INTERNET` permission in the manifest, so the app's
 sandbox has no network capability. A compromise of the app can misuse keys locally but cannot send
 them anywhere. Combined with `allowBackup="false"` and the empty data-extraction rules, nothing
