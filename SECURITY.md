@@ -40,7 +40,10 @@ them anywhere. Combined with `allowBackup="false"` and the empty data-extraction
 leaves the device except through a file the user explicitly saves.
 
 **Shoulder-surfing and screenshot capture.** The activity sets `FLAG_SECURE`, which also blanks the
-recents thumbnail.
+recents thumbnail. The optional app lock covers the UI whenever the app has been in the background
+for longer than the configured window, measured on a monotonic clock so changing the device time
+cannot extend it. That lock is only a convenience: it guards the identity list, which holds nothing
+secret. Key material is protected by the hardware key regardless of whether the lock is enabled.
 
 **Downgrade of backup parameters.** The Argon2id cost parameters live in the archive's cleartext
 header but are authenticated as GCM associated data, so an attacker cannot rewrite them to make a

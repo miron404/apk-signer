@@ -15,7 +15,9 @@ Titan M2 secure element, and signs APKs on the device with Google's `apksig` (v1
   system CSPRNG. It is never shown and never stored in the clear: it lives inside an AES-256-GCM
   envelope whose key is a StrongBox (Titan M2) key that cannot leave the secure element.
 - **System authentication with a hardware-enforced window.** Biometric or device credential, with a
-  re-authentication interval you choose in Settings.
+  re-authentication interval you choose in Settings. The same interval also governs the optional
+  app lock: the identity list re-locks once the app has been in the background for longer than the
+  window.
 - **Signing and verification.** v1 (JAR), v2, v3 and v4 signature schemes, optional re-alignment,
   and every result is verified with `ApkVerifier` before you are offered the file to save.
 - **Encrypted backup.** A single passphrase-protected archive (Argon2id + AES-256-GCM) moves every

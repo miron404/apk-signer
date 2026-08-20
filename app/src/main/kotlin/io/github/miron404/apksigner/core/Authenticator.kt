@@ -16,9 +16,6 @@ import kotlin.coroutines.resumeWithException
 /** The user dismissed the system prompt, or it failed in a way that should abort the operation. */
 class AuthCancelledException(message: String) : Exception(message)
 
-/** The device has no secure lock screen, so no key can be protected. */
-class NoSecureLockScreenException : Exception("No secure lock screen or enrolled biometric")
-
 /**
  * Drives the platform [BiometricPrompt]. Only the foreground activity can show system UI, so the
  * activity registers itself here for as long as it is resumed and unregisters afterwards.
