@@ -119,6 +119,8 @@ object ApkSigningService {
         if (v4Signature != null && v4Signature.isFile) builder.setV4SignatureFile(v4Signature)
 
         val result = builder.build().verify()
+        // getAllErrors folds in per-signer failures; result.errors alone would report a rejected
+        // APK with an empty explanation.
         return VerificationReport(
             verified = result.isVerified,
             v1 = result.isVerifiedUsingV1Scheme,
@@ -126,8 +128,14 @@ object ApkSigningService {
             v3 = result.isVerifiedUsingV3Scheme,
             v4 = result.isVerifiedUsingV4Scheme,
             signers = result.signerCertificates.map { it.summarise() },
-            errors = result.errors.map { it.toString() },
-            warnings = result.warnings.map { it.toString() },
+            errors = result.allErrors.map { it.toString() },
+            warnings = buildList {
+                addAll(result.warnings)
+                result.v1SchemeSigners.forEach { addAll(it.warnings) }
+                result.v2SchemeSigners.forEach { addAll(it.warnings) }
+                result.v3SchemeSigners.forEach { addAll(it.warnings) }
+                result.v4SchemeSigners.forEach { addAll(it.warnings) }
+            }.map { it.toString() },
         )
     }
 

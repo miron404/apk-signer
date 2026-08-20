@@ -31,31 +31,31 @@ class ApkSigningTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
-    fun `signs and verifies with v1 v2 and v3`() {
-        val source = findDebugApk()
-        assumeTrue("No debug APK built yet", source != null)
-        requireNotNull(source)
-
-        val input = temporaryFolder.newFile("input.apk").also { source.copyTo(it, overwrite = true) }
-        val output = File(temporaryFolder.root, "output.apk")
-
-        identity("release").use { unlocked ->
-            ApkSigningService.sign(
-                identity = unlocked,
-                input = input,
-                output = output,
-                v4Output = null,
-                options = SignOptions(schemes = SignatureSchemes(v1 = true, v2 = true, v3 = true, v4 = false)),
-            )
-        }
+    fun `signs and verifies with the modern schemes`() {
+        val output = signFixture(SignatureSchemes(v1 = false, v2 = true, v3 = true, v4 = false))
+            ?: return
 
         val report = ApkSigningService.verify(output, null)
 
-        assertTrue(report.errors.joinToString(), report.verified)
-        assertTrue(report.v1)
+        assertTrue(report.errors.joinToString(" | "), report.verified)
         assertTrue(report.v2)
         assertTrue(report.v3)
         assertEquals(1, report.signers.size)
+    }
+
+    @Test
+    fun `signs and verifies with the jar scheme as well`() {
+        val output = signFixture(SignatureSchemes(v1 = true, v2 = true, v3 = true, v4 = false))
+            ?: return
+
+        // The fixture targets API 33, where the verifier ignores v1 entirely. Check from API 24 so
+        // the JAR signature is actually exercised.
+        val report = ApkSigningService.verify(output, null, minSdkOverride = 24)
+
+        assertTrue(report.errors.joinToString(" | "), report.verified)
+        assertTrue("v1 signature was not verified", report.v1)
+        assertTrue(report.v2)
+        assertTrue(report.v3)
     }
 
     @Test
@@ -94,6 +94,27 @@ class ApkSigningTest {
         }
 
         assertEquals(expected, ApkSigningService.verify(output, null).signers.single().fingerprintSha256)
+    }
+
+    /** Signs the debug-build fixture, or returns null (test skipped) when there is not one. */
+    private fun signFixture(schemes: SignatureSchemes): File? {
+        val source = findDebugApk()
+        assumeTrue("No debug APK built yet", source != null)
+        requireNotNull(source)
+
+        val input = temporaryFolder.newFile("in-${schemes.hashCode()}.apk")
+            .also { source.copyTo(it, overwrite = true) }
+        val output = File(temporaryFolder.root, "out-${schemes.hashCode()}.apk")
+        identity("release").use { unlocked ->
+            ApkSigningService.sign(
+                identity = unlocked,
+                input = input,
+                output = output,
+                v4Output = null,
+                options = SignOptions(schemes = schemes),
+            )
+        }
+        return output
     }
 
     private fun identity(alias: String): UnlockedIdentity {
