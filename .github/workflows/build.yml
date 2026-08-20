@@ -122,7 +122,10 @@ jobs:
             # An auth-bound key cannot be created without a secure lock screen.
             adb shell locksettings set-pin 1234
             adb shell input keyevent 82
+            adb logcat -c
             ./gradlew --no-daemon :app:connectedDebugAndroidTest
+            echo "--- key generation timings ---"
+            adb logcat -d -s ApkSignerTiming:I
             adb shell locksettings clear --old 1234
 
       - name: Upload instrumentation reports

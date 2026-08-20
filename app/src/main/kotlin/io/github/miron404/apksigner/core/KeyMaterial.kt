@@ -47,17 +47,34 @@ class LoadedKeyMaterial(val privateKey: PrivateKey, val chain: List<X509Certific
 object KeyMaterial {
 
     /**
-     * Number of PBKDF2 rounds used when a PKCS#12 is protected by a password.
+     * PBKDF2 rounds for a PKCS#12 that a person has to remember the passphrase for.
      *
-     * Internal keystores use a 256-bit random password where the KDF is irrelevant, but the same
-     * writer produces user-facing exports, so the cost is tuned for a human-chosen passphrase.
+     * Sized against offline guessing of a human-chosen passphrase, which is the only thing standing
+     * between an exported file and its private key.
      */
-    private const val PBKDF2_ITERATIONS = 600_000
+    const val EXPORT_KDF_ITERATIONS = 600_000
 
+    /**
+     * PBKDF2 rounds for the keystore kept inside the vault.
+     *
+     * Its password is 256 bits straight from the CSPRNG, so there is no guessing attack for a KDF
+     * to slow down; stretching it would only add seconds of CPU to every create, sign and export.
+     * What actually protects this blob is the AES-256-GCM envelope and the hardware master key.
+     */
+    private const val INTERNAL_KDF_ITERATIONS = 10_000
+
+    /**
+     * Generates a key pair and its self-signed certificate.
+     *
+     * Both the key generation and the certificate signature deliberately use the platform's default
+     * provider rather than BouncyCastle. On Android that is BoringSSL through Conscrypt, which does
+     * the modular arithmetic natively; BouncyCastle would do it in Java `BigInteger` on ART and take
+     * minutes for an RSA key. BouncyCastle is still used below for the ASN.1 and PKCS#12 work that
+     * the platform does not expose at all.
+     */
     fun generate(request: NewIdentityRequest): GeneratedKeyMaterial {
-        val provider = Bc.provider
         val algorithm = request.algorithm
-        val generator = KeyPairGenerator.getInstance(algorithm.jcaName, provider)
+        val generator = KeyPairGenerator.getInstance(algorithm.jcaName)
         val curve = algorithm.curveName
         if (curve != null) {
             generator.initialize(ECGenParameterSpec(curve), secureRandom)
@@ -88,12 +105,8 @@ object KeyMaterial {
                 extensionUtils.createSubjectKeyIdentifier(keyPair.public),
             )
 
-        val signer = JcaContentSignerBuilder(algorithm.signatureAlgorithm)
-            .setProvider(provider)
-            .build(keyPair.private)
-        val certificate = JcaX509CertificateConverter()
-            .setProvider(provider)
-            .getCertificate(builder.build(signer))
+        val signer = JcaContentSignerBuilder(algorithm.signatureAlgorithm).build(keyPair.private)
+        val certificate = JcaX509CertificateConverter().getCertificate(builder.build(signer))
 
         return GeneratedKeyMaterial(keyPair, certificate)
     }
@@ -107,6 +120,7 @@ object KeyMaterial {
         privateKey: PrivateKey,
         certificate: X509Certificate,
         password: CharArray,
+        iterations: Int = INTERNAL_KDF_ITERATIONS,
     ): ByteArray {
         val provider = Bc.provider
         val friendlyName = DERBMPString(alias)
@@ -117,7 +131,7 @@ object KeyMaterial {
         fun encryptor() = JcePKCSPBEOutputEncryptorBuilder(NISTObjectIdentifiers.id_aes256_CBC)
             .setProvider(provider)
             .setPRF(AlgorithmIdentifier(PKCSObjectIdentifiers.id_hmacWithSHA256, DERNull.INSTANCE))
-            .setIterationCount(PBKDF2_ITERATIONS)
+            .setIterationCount(iterations)
             .setRandom(secureRandom)
             .build(password)
 
@@ -140,7 +154,7 @@ object KeyMaterial {
             .build(
                 JcePKCS12MacCalculatorBuilder(NISTObjectIdentifiers.id_sha256)
                     .setProvider(provider)
-                    .setIterationCount(PBKDF2_ITERATIONS),
+                    .setIterationCount(iterations),
                 password,
             )
 

@@ -58,13 +58,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
+    override fun onStart() {
+        super.onStart()
+        // Registered here rather than in onResume: the lock is decided on ON_START and may raise a
+        // prompt immediately, which needs a host activity already in place.
         container.authenticator.attach(this)
     }
 
-    override fun onPause() {
+    override fun onStop() {
         container.authenticator.detach(this)
-        super.onPause()
+        super.onStop()
     }
 }

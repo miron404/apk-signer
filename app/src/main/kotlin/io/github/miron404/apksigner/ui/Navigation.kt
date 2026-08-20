@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +70,12 @@ fun AppNavHost(vaultModel: VaultViewModel) {
 
 @Composable
 fun LockScreen(state: VaultUiState, onUnlock: () -> Unit) {
+    // Ask straight away rather than making the user tap first. Declining clears the flag, so the
+    // button below becomes the way to retry instead of the prompt reappearing immediately.
+    LaunchedEffect(state.promptPending) {
+        if (state.promptPending) onUnlock()
+    }
+
     Surface(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -88,7 +95,7 @@ fun LockScreen(state: VaultUiState, onUnlock: () -> Unit) {
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (state.busy != null) {
+            if (state.busy != null || state.promptPending) {
                 CircularProgressIndicator()
             } else {
                 Button(onClick = onUnlock) { Text("Unlock") }

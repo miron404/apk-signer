@@ -75,7 +75,7 @@ enum class KeyAlgorithm(val label: String, val jcaName: String, val signatureAlg
         }
 
     companion object {
-        val DEFAULT = RSA_4096
+        val DEFAULT = RSA_2048
     }
 }
 

@@ -24,6 +24,17 @@ class SystemAuthenticator {
 
     private var host: WeakReference<Activity> = WeakReference(null)
 
+    /**
+     * True while a system prompt is on screen.
+     *
+     * Choosing the PIN fallback hands control to the system credential activity, which stops this
+     * app. Without this flag the resulting restart would look like a return from the background and
+     * would raise a second prompt on top of the one already waiting.
+     */
+    @Volatile
+    var isPrompting: Boolean = false
+        private set
+
     fun attach(activity: Activity) {
         host = WeakReference(activity)
     }
@@ -43,6 +54,21 @@ class SystemAuthenticator {
         allowDeviceCredential: Boolean,
     ) {
         val activity = host.get() ?: throw AuthCancelledException("App is not in the foreground")
+        isPrompting = true
+        try {
+            showPrompt(activity, crypto, title, subtitle, allowDeviceCredential)
+        } finally {
+            isPrompting = false
+        }
+    }
+
+    private suspend fun showPrompt(
+        activity: Activity,
+        crypto: BiometricPrompt.CryptoObject?,
+        title: String,
+        subtitle: String,
+        allowDeviceCredential: Boolean,
+    ) {
         withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { continuation ->
                 val executor = Executor { it.run() }

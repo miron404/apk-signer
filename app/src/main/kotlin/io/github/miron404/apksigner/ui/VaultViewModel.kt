@@ -29,6 +29,8 @@ data class VaultUiState(
     val masterKey: MasterKeyState = MasterKeyState(false, false, AuthPolicy.DEFAULT),
     val lockOnLaunch: Boolean = true,
     val unlocked: Boolean = false,
+    /** Set when the lock screen should raise the system prompt without waiting for a tap. */
+    val promptPending: Boolean = false,
     val busy: String? = null,
     val message: String? = null,
     val error: String? = null,
@@ -82,13 +84,18 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(unlocked = true) }
             return
         }
+        // A prompt already on screen owns this restart: the user is in the system credential
+        // activity, not returning from elsewhere.
+        if (container.authenticator.isPrompting) return
+
         val since = backgroundedAt
         val window = vault.state().policy.timeoutSeconds * 1000L
         val stillFresh = since != null && SystemClock.elapsedRealtime() - since <= window
-        _state.update { it.copy(unlocked = stillFresh) }
+        _state.update { it.copy(unlocked = stillFresh, promptPending = !stillFresh) }
     }
 
     fun unlockApp() = run("Unlocking") {
+        _state.update { it.copy(promptPending = false) }
         val policy = vault.state().policy
         container.authenticator.authenticate(
             crypto = null,
@@ -101,7 +108,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLockOnLaunch(enabled: Boolean) {
         settings.lockOnLaunch = enabled
-        _state.update { it.copy(lockOnLaunch = enabled, unlocked = it.unlocked || !enabled) }
+        _state.update {
+            it.copy(lockOnLaunch = enabled, unlocked = it.unlocked || !enabled, promptPending = false)
+        }
     }
 
     // --- identities ---------------------------------------------------------------------------
@@ -152,6 +161,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                             privateKey = material.privateKey,
                             certificate = material.chain.first(),
                             password = passphrase,
+                            iterations = KeyMaterial.EXPORT_KDF_ITERATIONS,
                         )
                     }
                     writeToUri(target, encoded)
