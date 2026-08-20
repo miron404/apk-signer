@@ -10,6 +10,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import javax.crypto.AEADBadTagException
 
@@ -37,7 +38,7 @@ class EnvelopeTest {
 
         val sealed = Envelope.seal(wrapper, context, secret)
 
-        assertNotEquals(-1, sealed.size)
+        assertTrue(sealed.size > secret.size)
         assertArrayEquals(secret, Envelope.open(wrapper, context, sealed))
     }
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
         Deliberately no INTERNET permission. The app cannot exfiltrate key material even if it
@@ -21,9 +22,7 @@
         android:memtagMode="async"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ApkSigner"
-        tools:targetApi="34"
-        xmlns:tools="http://schemas.android.com/tools">
+        android:theme="@style/Theme.ApkSigner">
 
         <activity
             android:name=".MainActivity"
@@ -36,12 +35,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- No exported components beyond the launcher activity. -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            tools:node="remove" />
     </application>
 
 </manifest>

@@ -118,11 +118,13 @@ class BackupArchiveTest {
     fun `downgraded kdf parameters are rejected`() {
         val passphrase = "a long enough passphrase".toCharArray()
         val archive = BackupArchive.create(listOf(sampleIdentity("zeta")), passphrase.copyOf())
-        // Byte 9 onwards is the big-endian Argon2 memory cost, authenticated as additional data.
-        archive[12] = 0
-        archive[11] = 0
+        // Bytes 9..12 are the big-endian Argon2 memory cost. Nudging it to a value that is
+        // still in range proves the header is bound by the GCM tag rather than merely sanity checked.
+        archive[12] = 1
 
-        assertThrows(Exception::class.java) { BackupArchive.open(archive, passphrase.copyOf()) }
+        assertThrows(BackupDecryptionException::class.java) {
+            BackupArchive.open(archive, passphrase.copyOf())
+        }
     }
 
     @Test

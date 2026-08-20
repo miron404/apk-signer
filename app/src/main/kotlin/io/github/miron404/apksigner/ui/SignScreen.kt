@@ -38,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.miron404.apksigner.core.SignatureSchemes
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -235,10 +234,3 @@ fun SignScreen(vaultModel: VaultViewModel, signModel: SignViewModel, onBack: () 
 private fun SchemeChip(label: String, selected: Boolean, onChange: (Boolean) -> Unit) {
     FilterChip(selected = selected, onClick = { onChange(!selected) }, label = { Text(label) })
 }
-
-private fun SignatureSchemes.describe(): String = listOfNotNull(
-    "v1".takeIf { v1 },
-    "v2".takeIf { v2 },
-    "v3".takeIf { v3 },
-    "v4".takeIf { v4 },
-).joinToString(", ")

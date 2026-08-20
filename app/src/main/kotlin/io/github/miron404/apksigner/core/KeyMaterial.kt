@@ -2,6 +2,8 @@ package io.github.miron404.apksigner.core
 
 import org.bouncycastle.asn1.ASN1Encoding
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
+import org.bouncycastle.asn1.DERNull
+import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.DERBMPString
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers
@@ -110,11 +112,11 @@ object KeyMaterial {
         val friendlyName = DERBMPString(alias)
         val keyId = JcaX509ExtensionUtils().createSubjectKeyIdentifier(certificate.publicKey)
             .keyIdentifier
-            .let { org.bouncycastle.asn1.DEROctetString(it) }
+            .let { DEROctetString(it) }
 
         fun encryptor() = JcePKCSPBEOutputEncryptorBuilder(NISTObjectIdentifiers.id_aes256_CBC)
             .setProvider(provider)
-            .setPRF(AlgorithmIdentifier(PKCSObjectIdentifiers.id_hmacWithSHA256))
+            .setPRF(AlgorithmIdentifier(PKCSObjectIdentifiers.id_hmacWithSHA256, DERNull.INSTANCE))
             .setIterationCount(PBKDF2_ITERATIONS)
             .setRandom(secureRandom)
             .build(password)
