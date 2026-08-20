@@ -124,16 +124,18 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             ) {
                 error("Set up a screen lock or biometric before creating keys")
             }
+            val started = SystemClock.elapsedRealtime()
             val strongBox = withContext(Dispatchers.IO) { vault.ensureMasterKey() }
             val meta = vault.create(request)
+            val seconds = (SystemClock.elapsedRealtime() - started) / 1000.0
             refresh()
             onCreated()
             _state.update {
                 it.copy(
-                    message = if (strongBox) {
-                        "Created ${meta.label}; protected by the secure element"
+                    message = "Created ${meta.label} in %.1fs; ".format(seconds) + if (strongBox) {
+                        "sealed by the secure element"
                     } else {
-                        "Created ${meta.label}; no secure element, key is TEE-backed"
+                        "no secure element, sealed by the TEE"
                     }
                 )
             }
