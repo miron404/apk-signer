@@ -160,6 +160,74 @@ fun PassphraseDialog(
 }
 
 /**
+ * Collects the passwords that open an existing keystore.
+ *
+ * `keytool` and Gradle both allow the key inside to carry a password of its own, so the second
+ * field is offered but blank means "same as the keystore", which is how most keystores are made.
+ */
+@Composable
+fun KeystorePasswordDialog(
+    onConfirm: (storePassword: CharArray, keyPassword: CharArray) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var storePassword by remember { mutableStateOf("") }
+    var keyPassword by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unlock the keystore") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Every signing key in the file is imported. Each one is rewritten under a fresh " +
+                        "random password and sealed by the secure element, so the original file's " +
+                        "protection is not carried over.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = storePassword,
+                    onValueChange = { storePassword = it },
+                    label = { Text("Keystore password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Next,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = keyPassword,
+                    onValueChange = { keyPassword = it },
+                    label = { Text("Key password") },
+                    placeholder = { Text("Same as keystore password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = storePassword.isNotEmpty(),
+                onClick = {
+                    onConfirm(
+                        storePassword.toCharArray(),
+                        keyPassword.ifEmpty { storePassword }.toCharArray(),
+                    )
+                },
+            ) { Text("Import") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
  * Edits the two names an identity carries: what this app calls it, and the alias inside the
  * keystore. Only the alias costs anything to change, which the dialog says out loud.
  */

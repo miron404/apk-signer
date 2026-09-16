@@ -35,7 +35,9 @@ data class DistinguishedName(
         "L" to locality,
         "ST" to state,
         "C" to country,
-    ).joinToString(", ") { (key, value) -> key + "=" + escapeRdn(value) }
+    )
+        .filter { (_, value) -> value.isNotBlank() }
+        .joinToString(", ") { (key, value) -> key + "=" + escapeRdn(value) }
 
     private companion object {
         fun String.orUnknown(): String = trim().ifEmpty { UNKNOWN }

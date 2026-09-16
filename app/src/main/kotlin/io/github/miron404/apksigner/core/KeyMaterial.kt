@@ -2,6 +2,7 @@ package io.github.miron404.apksigner.core
 
 import org.bouncycastle.asn1.ASN1Encoding
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
+import org.bouncycastle.asn1.ASN1String
 import org.bouncycastle.asn1.DERNull
 import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.DERBMPString
@@ -31,7 +32,10 @@ import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.PublicKey
 import java.security.cert.X509Certificate
+import java.security.interfaces.ECPublicKey
+import java.security.interfaces.RSAPublicKey
 import java.security.spec.ECGenParameterSpec
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -43,6 +47,21 @@ class GeneratedKeyMaterial(val keyPair: KeyPair, val certificate: X509Certificat
 
 /** Private key plus certificate chain read back out of a PKCS#12 blob. */
 class LoadedKeyMaterial(val privateKey: PrivateKey, val chain: List<X509Certificate>)
+
+/** One signing key found inside a keystore the user brought in from elsewhere. */
+class KeystoreEntry(
+    val alias: String,
+    val privateKey: PrivateKey,
+    val chain: List<X509Certificate>,
+) {
+    val certificate: X509Certificate get() = chain.first()
+}
+
+enum class KeystoreFormat(val label: String) {
+    PKCS12("PKCS#12"),
+    JKS("JKS"),
+    BKS("BKS"),
+}
 
 object KeyMaterial {
 
@@ -160,6 +179,84 @@ object KeyMaterial {
 
         return pfx.getEncoded(ASN1Encoding.DL)
     }
+
+    /**
+     * Identifies a keystore by its header so a later failure can be blamed on the password rather
+     * than on the format. JKS and PKCS#12 are self-identifying; BKS is the fallback guess.
+     */
+    fun detectKeystoreFormat(bytes: ByteArray): KeystoreFormat? = when {
+        bytes.size < 4 -> null
+        JksKeystore.looksLikeJks(bytes) -> KeystoreFormat.JKS
+        // JCEKS shares the JKS layout but encrypts keys differently; call it out by name instead of
+        // letting it fail as a corrupt JKS.
+        bytes.startsWith(0xCE, 0xCE, 0xCE, 0xCE) -> null
+        bytes[0].toInt() == 0x30 -> KeystoreFormat.PKCS12
+        else -> KeystoreFormat.BKS
+    }
+
+    /**
+     * Reads every private-key entry out of a keystore. [keyPassword] falls back to [storePassword],
+     * which is how `keytool` is normally used and what Gradle assumes when only one is configured.
+     */
+    fun readKeystoreEntries(
+        bytes: ByteArray,
+        storePassword: CharArray,
+        keyPassword: CharArray = storePassword,
+    ): List<KeystoreEntry> {
+        val format = detectKeystoreFormat(bytes)
+            ?: throw KeystoreReadException("Unrecognised keystore format; only PKCS#12, JKS and BKS are supported")
+        if (format == KeystoreFormat.JKS) return JksKeystore.read(bytes, storePassword, keyPassword)
+
+        val store = try {
+            KeyStore.getInstance(if (format == KeystoreFormat.PKCS12) "PKCS12" else "BKS", Bc.provider)
+                .apply { ByteArrayInputStream(bytes).use { load(it, storePassword) } }
+        } catch (e: Exception) {
+            throw KeystoreReadException("Wrong keystore password, or the file is not a ${format.label} keystore", e)
+        }
+        return store.aliases().toList().filter { store.isKeyEntry(it) }.map { alias ->
+            val key = try {
+                store.getKey(alias, keyPassword)
+            } catch (e: Exception) {
+                throw KeystoreReadException("Wrong key password for entry '$alias'", e)
+            }
+            val privateKey = key as? PrivateKey
+                ?: throw KeystoreReadException("Entry '$alias' is not a private key")
+            val chain = store.getCertificateChain(alias)
+                ?.filterIsInstance<X509Certificate>()
+                ?.takeIf { it.isNotEmpty() }
+                ?: throw KeystoreReadException("Entry '$alias' has no certificate")
+            KeystoreEntry(alias, privateKey, chain)
+        }
+    }
+
+    /** Reads the subject of a certificate back into the fields the app shows and edits. */
+    fun subjectOf(certificate: X509Certificate): DistinguishedName {
+        val name = X500Name.getInstance(certificate.subjectX500Principal.encoded)
+        fun component(oid: ASN1ObjectIdentifier): String {
+            val value = name.getRDNs(oid).firstOrNull()?.first?.value ?: return ""
+            // The raw string, not IETFUtils.valueToString: that applies RFC 2253 escaping, which
+            // rfc2253() would then escape a second time.
+            return (value as? ASN1String)?.string ?: value.toString()
+        }
+        return DistinguishedName(
+            commonName = component(BCStyle.CN),
+            organizationalUnit = component(BCStyle.OU),
+            organization = component(BCStyle.O),
+            locality = component(BCStyle.L),
+            state = component(BCStyle.ST),
+            country = component(BCStyle.C),
+        )
+    }
+
+    /** Names the key behind a certificate, for display and for the stored metadata. */
+    fun describeKey(publicKey: PublicKey): Pair<String, Int> = when (publicKey) {
+        is RSAPublicKey -> "RSA" to publicKey.modulus.bitLength()
+        is ECPublicKey -> "EC" to publicKey.params.curve.field.fieldSize
+        else -> publicKey.algorithm to 0
+    }
+
+    private fun ByteArray.startsWith(vararg prefix: Int): Boolean =
+        size >= prefix.size && prefix.indices.all { this[it].toInt() and 0xFF == prefix[it] }
 
     fun readPkcs12(pkcs12: ByteArray, password: CharArray, alias: String): LoadedKeyMaterial {
         val store = KeyStore.getInstance("PKCS12", Bc.provider)

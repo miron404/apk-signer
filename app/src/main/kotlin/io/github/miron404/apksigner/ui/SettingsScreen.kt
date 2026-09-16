@@ -53,6 +53,7 @@ fun SettingsScreen(model: VaultViewModel, onBack: () -> Unit) {
     var pendingPolicy by remember { mutableStateOf<AuthPolicy?>(null) }
     var backupTarget by remember { mutableStateOf<Uri?>(null) }
     var restoreSource by remember { mutableStateOf<Uri?>(null) }
+    var keystoreSource by remember { mutableStateOf<Uri?>(null) }
 
     val createBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
@@ -60,6 +61,9 @@ fun SettingsScreen(model: VaultViewModel, onBack: () -> Unit) {
     val openBackup = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> restoreSource = uri }
+    val openKeystore = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> keystoreSource = uri }
 
     val policy = state.masterKey.policy
 
@@ -106,6 +110,16 @@ fun SettingsScreen(model: VaultViewModel, onBack: () -> Unit) {
                 model.importBackup(source, passphrase, overwrite = false)
             },
             onDismiss = { restoreSource = null },
+        )
+    }
+
+    keystoreSource?.let { source ->
+        KeystorePasswordDialog(
+            onConfirm = { storePassword, keyPassword ->
+                keystoreSource = null
+                model.importKeystore(source, storePassword, keyPassword)
+            },
+            onDismiss = { keystoreSource = null },
         )
     }
 
@@ -185,6 +199,20 @@ fun SettingsScreen(model: VaultViewModel, onBack: () -> Unit) {
                 )
                 KeyValueRow("Re-authenticate", formatDuration(policy.timeoutSeconds))
                 KeyValueRow("Identities", state.identities.size.toString())
+            }
+
+            SectionCard("Import an existing keystore") {
+                Text(
+                    "Brings a signing key you already use into the vault: PKCS#12 (.p12, .pfx), " +
+                        "JKS (.jks, .keystore) or BKS. The key and its certificate are unchanged, " +
+                        "so APKs already published with it keep updating.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { openKeystore.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Import keystore") }
             }
 
             SectionCard("Encrypted backup") {

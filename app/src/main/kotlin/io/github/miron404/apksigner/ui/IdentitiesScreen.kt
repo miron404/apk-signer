@@ -125,7 +125,8 @@ private fun EmptyIdentities() {
         Text("No identities yet", style = MaterialTheme.typography.titleMedium)
         Text(
             "Create one to generate a key pair and a self-signed certificate. Its keystore " +
-                "password is random and sealed by the secure element.",
+                "password is random and sealed by the secure element. Settings can also import " +
+                "a keystore you already use elsewhere.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,

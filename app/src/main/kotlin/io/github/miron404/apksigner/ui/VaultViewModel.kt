@@ -139,15 +139,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createIdentity(request: NewIdentityRequest, onCreated: () -> Unit) =
         run("Generating ${request.algorithm.label} key") {
-            if (!SystemAuthenticator.canAuthenticate(
-                    getApplication(),
-                    settings.desiredPolicy.allowDeviceCredential,
-                )
-            ) {
-                error("Set up a screen lock or biometric before creating keys")
-            }
             val started = SystemClock.elapsedRealtime()
-            val strongBox = withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+            val strongBox = prepareMasterKey()
             val meta = vault.create(request)
             val seconds = (SystemClock.elapsedRealtime() - started) / 1000.0
             refresh()
@@ -233,7 +226,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 BackupArchive.open(bytes, passphrase)
             }
             try {
-                withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+                prepareMasterKey()
                 var added = 0
                 var skipped = 0
                 portables.forEach { portable ->
@@ -253,6 +246,52 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+    /** Imports every signing key from a keystore the user made elsewhere. */
+    fun importKeystore(source: Uri, storePassword: CharArray, keyPassword: CharArray) =
+        run("Reading keystore") {
+            try {
+                val bytes = readFromUri(source)
+                val entries = withContext(Dispatchers.Default) {
+                    KeyMaterial.readKeystoreEntries(bytes, storePassword, keyPassword)
+                }
+                bytes.wipe()
+                if (entries.isEmpty()) error("That keystore holds no signing keys")
+
+                prepareMasterKey()
+                var added = 0
+                var skipped = 0
+                entries.forEach { entry ->
+                    if (vault.importKeystore(entry) != null) added++ else skipped++
+                }
+                refresh()
+                _state.update {
+                    it.copy(
+                        message = "Imported $added " + (if (added == 1) "key" else "keys") +
+                            if (skipped > 0) ", skipped $skipped already present" else ""
+                    )
+                }
+            } finally {
+                storePassword.wipe()
+                keyPassword.wipe()
+            }
+        }
+
+    /**
+     * Creates the master key if it is missing, refusing early when the device cannot satisfy the
+     * configured authenticators. Without this, Keymaster rejects the key spec and the user sees a
+     * raw platform exception instead of being told to set up a screen lock.
+     */
+    private suspend fun prepareMasterKey(): Boolean {
+        if (!SystemAuthenticator.canAuthenticate(
+                getApplication(),
+                settings.desiredPolicy.allowDeviceCredential,
+            )
+        ) {
+            error("Set up a screen lock or biometric before storing keys")
+        }
+        return withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+    }
+
     // --- policy -------------------------------------------------------------------------------
 
     /**
@@ -264,7 +303,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         if (vault.state().exists) {
             vault.rekey(policy)
         } else {
-            withContext(Dispatchers.IO) { vault.ensureMasterKey() }
+            prepareMasterKey()
         }
         refresh()
         _state.update { it.copy(message = "Authentication now required " + describe(policy)) }

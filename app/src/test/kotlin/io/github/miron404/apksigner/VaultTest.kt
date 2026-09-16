@@ -7,6 +7,7 @@ import io.github.miron404.apksigner.core.DistinguishedName
 import io.github.miron404.apksigner.core.KeyAlgorithm
 import io.github.miron404.apksigner.core.KeyMaterial
 import io.github.miron404.apksigner.core.KeyWrapper
+import io.github.miron404.apksigner.core.KeystoreEntry
 import io.github.miron404.apksigner.core.MasterKeyState
 import io.github.miron404.apksigner.core.MasterKeyStore
 import io.github.miron404.apksigner.core.NewIdentityRequest
@@ -19,6 +20,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -317,6 +319,53 @@ class VaultTest {
 
         assertEquals(meta, renamed)
         assertArrayEquals(sealed, File(root, meta.id + ".key").readBytes())
+    }
+
+    @Test
+    fun `importing a keystore adopts its key and reads metadata off the certificate`() = runTest {
+        vault.ensureMasterKey()
+        val material = KeyMaterial.generate(
+            NewIdentityRequest(
+                label = "ignored",
+                alias = "ignored",
+                dn = DistinguishedName(commonName = "Old Key", organization = "Acme", country = "NL"),
+                validityYears = 25,
+                algorithm = KeyAlgorithm.EC_P256,
+            )
+        )
+        val entry = KeystoreEntry("legacy", material.keyPair.private, listOf(material.certificate))
+
+        val meta = vault.importKeystore(entry)!!
+
+        assertEquals("legacy", meta.alias)
+        assertEquals("legacy", meta.label)
+        assertEquals("Old Key", meta.dn.commonName)
+        assertEquals("NL", meta.dn.country)
+        assertEquals("EC", meta.algorithm)
+        assertEquals(256, meta.keySize)
+        assertEquals(
+            KeyMaterial.fingerprintSha256(material.certificate),
+            meta.fingerprintSha256,
+        )
+
+        // The imported key is now sealed like any other and opens under a password of our own.
+        vault.open(meta).use { portable ->
+            val loaded = KeyMaterial.readPkcs12(portable.pkcs12, portable.keystorePassword, "legacy")
+            assertEquals(material.certificate, loaded.chain.first())
+        }
+    }
+
+    @Test
+    fun `importing the same certificate twice is skipped`() = runTest {
+        vault.ensureMasterKey()
+        val material = KeyMaterial.generate(
+            NewIdentityRequest("x", "x", DistinguishedName(commonName = "dup"), 30, KeyAlgorithm.EC_P256)
+        )
+        val entry = KeystoreEntry("dup", material.keyPair.private, listOf(material.certificate))
+
+        assertNotNull(vault.importKeystore(entry))
+        assertNull(vault.importKeystore(entry))
+        assertEquals(1, vault.list().size)
     }
 
     @Test

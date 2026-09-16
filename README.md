@@ -24,6 +24,9 @@ Titan M2 secure element, and signs APKs on the device with Google's `apksig` (v1
 - **Signing and verification.** v1 (JAR), v2, v3 and v4 signature schemes, optional re-alignment,
   and every result is verified with `ApkVerifier` before you are offered the file to save. An APK
   can be picked from inside the app, opened with it from a file manager, or shared to it.
+- **Bring existing keys in.** Import a keystore you already sign with — PKCS#12, JKS or BKS —
+  with its password. The key and certificate are unchanged, so apps already published with it keep
+  updating; only the protection around them is upgraded.
 - **Encrypted backup.** A single passphrase-protected archive (Argon2id + AES-256-GCM) moves every
   identity to another device. Individual identities can also be exported as PKCS#12 for use with
   `apksigner` or Gradle.

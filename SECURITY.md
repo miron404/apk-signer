@@ -90,6 +90,13 @@ objects likewise cannot be reliably scrubbed.
 **A malicious or backdoored APK being signed.** The app signs what you give it. It reports whether
 the input is marked debuggable, and verifies its own output, but it does not inspect the payload.
 
+**Whatever protected a key before it was imported.** JKS guards keys with a SHA-1 keystream and
+checks integrity with a SHA-1 digest; an old PKCS#12 may use 3DES or 40-bit RC2. Importing does not
+inherit any of that — the key is rewritten under a fresh 256-bit random password and sealed in the
+hardware-backed envelope — but it cannot undo exposure that already happened. If the original file
+has been sitting in a backup or a repository, treat the key as potentially known and rotate it
+rather than importing it. Nothing is ever written back in those formats.
+
 **Physical extraction attacks on the secure element itself.** Out of scope; that is Titan M2's
 problem, and it is the reason StrongBox is preferred over the TEE.
 

@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.UUID
 
@@ -125,26 +126,69 @@ class Vault(
                 certificate = material.certificate,
                 password = password,
             )
-            val meta = IdentityMeta(
-                id = UUID.randomUUID().toString(),
+            val meta = metaFor(
                 label = request.label.ifBlank { request.dn.withDefaults().commonName },
                 alias = alias,
-                dn = request.dn.withDefaults(),
-                algorithm = request.algorithm.jcaName,
-                keySize = request.algorithm.keySize,
-                signatureAlgorithm = request.algorithm.signatureAlgorithm,
-                serialNumberHex = material.certificate.serialNumber.toString(16).uppercase(),
-                createdAt = System.currentTimeMillis(),
-                notBefore = material.certificate.notBefore.time,
-                notAfter = material.certificate.notAfter.time,
-                certificatePem = KeyMaterial.toPem(material.certificate),
-                fingerprintSha256 = KeyMaterial.fingerprintSha256(material.certificate),
+                certificate = material.certificate,
             )
             store(meta, password, pkcs12)
             meta
         } finally {
             password.wipe()
         }
+    }
+
+    /**
+     * Adopts a key from a keystore the user created elsewhere.
+     *
+     * The original file's protection is not carried over: the key is rewritten into this app's own
+     * PKCS#12 under a fresh 256-bit random password and sealed by the hardware master key, which is
+     * an upgrade over what a JKS or a passphrase-protected PKCS#12 offered. Metadata is read from
+     * the certificate rather than asked for, because the certificate is what signatures prove.
+     *
+     * Returns null when an identity with the same certificate is already present.
+     */
+    suspend fun importKeystore(entry: KeystoreEntry): IdentityMeta? {
+        val certificate = entry.certificate
+        val fingerprint = KeyMaterial.fingerprintSha256(certificate)
+        if (list().any { it.fingerprintSha256 == fingerprint }) return null
+
+        val password = KeyMaterial.randomKeystorePassword()
+        return try {
+            val alias = entry.alias.ifBlank { UNKNOWN }
+            val pkcs12 = withContext(Dispatchers.Default) {
+                KeyMaterial.writePkcs12(alias, entry.privateKey, certificate, password)
+            }
+            val meta = metaFor(label = alias, alias = alias, certificate = certificate)
+            try {
+                store(meta, password, pkcs12)
+            } finally {
+                pkcs12.wipe()
+            }
+            meta
+        } finally {
+            password.wipe()
+        }
+    }
+
+    /** Everything in the metadata is derived from the certificate, which is the authoritative copy. */
+    private fun metaFor(label: String, alias: String, certificate: X509Certificate): IdentityMeta {
+        val (algorithm, keySize) = KeyMaterial.describeKey(certificate.publicKey)
+        return IdentityMeta(
+            id = UUID.randomUUID().toString(),
+            label = label,
+            alias = alias,
+            dn = KeyMaterial.subjectOf(certificate),
+            algorithm = algorithm,
+            keySize = keySize,
+            signatureAlgorithm = certificate.sigAlgName,
+            serialNumberHex = certificate.serialNumber.toString(16).uppercase(),
+            createdAt = System.currentTimeMillis(),
+            notBefore = certificate.notBefore.time,
+            notAfter = certificate.notAfter.time,
+            certificatePem = KeyMaterial.toPem(certificate),
+            fingerprintSha256 = KeyMaterial.fingerprintSha256(certificate),
+        )
     }
 
     /** Adds an identity that came from a backup archive, keeping its original key and certificate. */
